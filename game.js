@@ -3580,51 +3580,20 @@ class MusicManager {
     this.currentTrackIndex = 0
     this.volume = 0.3
     this.gainNode = null
-    this.activeOscillators = []
-    this.activeFilters = []
-    this.activeGainNodes = []
-    this.timerId = null
+    this.currentAudio = null
     
     this.tracks = [
       {
-        name: '静谧森林',
-        chords: [[261.63, 329.63, 392.00], [220.00, 261.63, 329.63], [196.00, 246.94, 293.66], [261.63, 329.63, 392.00]],
-        chordDuration: 3,
-        arpeggioSpeed: 0.3,
-        filterFreq: 800,
-        oscillatorType: 'sine'
+        name: '欢乐',
+        filename: '欢乐.mp3'
       },
       {
-        name: '星空漫步',
-        chords: [[261.63, 349.23, 440.00], [293.66, 392.00, 493.88], [329.63, 440.00, 554.37], [261.63, 349.23, 440.00]],
-        chordDuration: 4,
-        arpeggioSpeed: 0.4,
-        filterFreq: 1200,
-        oscillatorType: 'triangle'
+        name: '激情',
+        filename: '激情.mp3'
       },
       {
-        name: '晨曦微光',
-        chords: [[329.63, 415.30, 493.88], [293.66, 369.99, 440.00], [261.63, 329.63, 392.00], [220.00, 277.18, 329.63]],
-        chordDuration: 3,
-        arpeggioSpeed: 0.25,
-        filterFreq: 600,
-        oscillatorType: 'sine'
-      },
-      {
-        name: '云端梦境',
-        chords: [[196.00, 261.63, 329.63], [220.00, 293.66, 369.99], [246.94, 329.63, 415.30], [196.00, 261.63, 329.63]],
-        chordDuration: 5,
-        arpeggioSpeed: 0.35,
-        filterFreq: 1000,
-        oscillatorType: 'triangle'
-      },
-      {
-        name: '月光低语',
-        chords: [[261.63, 392.00, 523.25], [220.00, 349.23, 440.00], [196.00, 293.66, 392.00], [261.63, 392.00, 523.25]],
-        chordDuration: 4,
-        arpeggioSpeed: 0.2,
-        filterFreq: 700,
-        oscillatorType: 'sine'
+        name: '静谧',
+        filename: '静谧.mp3'
       }
     ]
     
@@ -3648,7 +3617,7 @@ class MusicManager {
     if (saved) {
       try {
         const state = JSON.parse(saved)
-        this.currentTrackIndex = state.trackIndex || 0
+        this.currentTrackIndex = Math.min(state.trackIndex || 0, this.tracks.length - 1)
         this.volume = state.volume || 0.3
         this.isPlaying = state.isPlaying || false
       } catch (e) {
@@ -3666,7 +3635,12 @@ class MusicManager {
   }
   
   play() {
-    if (!this.audioContext) return
+    if (!this.audioContext) {
+      this.audioContext = new (window.AudioContext || window.webkitAudioContext)()
+      this.gainNode = this.audioContext.createGain()
+      this.gainNode.gain.setValueAtTime(this.volume, this.audioContext.currentTime)
+      this.gainNode.connect(this.audioContext.destination)
+    }
     if (this.isPlaying) return
     
     this.isPlaying = true
@@ -3690,119 +3664,92 @@ class MusicManager {
   }
   
   stopTrack() {
-    if (this.timerId) {
-      clearTimeout(this.timerId)
-      this.timerId = null
+    if (this.currentAudio) {
+      try {
+        this.currentAudio.pause()
+        this.currentAudio.currentTime = 0
+      } catch (e) {}
+      this.currentAudio = null
     }
-    
-    const now = this.audioContext.currentTime
-    this.activeGainNodes.forEach(gn => {
-      gn.gain.cancelScheduledValues(now)
-      gn.gain.setValueAtTime(gn.gain.value, now)
-      gn.gain.exponentialRampToValueAtTime(0.001, now + 0.5)
-    })
-    
-    setTimeout(() => {
-      this.activeOscillators.forEach(osc => {
-        try { osc.stop() } catch (e) {}
-      })
-      this.activeOscillators = []
-      this.activeFilters = []
-      this.activeGainNodes = []
-    }, 500)
   }
-  
+
+  fadeOutAudio() {
+  }
+
   startTrack() {
     this.stopTrack()
     const track = this.tracks[this.currentTrackIndex]
-    this.playChordLoop(track, 0)
+    this.loadAndPlayTrack(track)
   }
-  
-  playChordLoop(track, chordIndex) {
-    if (!this.isPlaying) return
-    
-    const chord = track.chords[chordIndex]
-    this.playChord(chord, track)
-    
-    this.timerId = setTimeout(() => {
-      const nextIndex = (chordIndex + 1) % track.chords.length
-      this.playChordLoop(track, nextIndex)
-    }, track.chordDuration * 1000)
-  }
-  
-  playChord(frequencies, track) {
-    const now = this.audioContext.currentTime
-    const duration = track.chordDuration
-    
-    frequencies.forEach((freq, index) => {
-      const osc = this.audioContext.createOscillator()
-      const filter = this.audioContext.createBiquadFilter()
-      const gain = this.audioContext.createGain()
-      
-      osc.type = track.oscillatorType
-      osc.frequency.setValueAtTime(freq, now)
-      
-      filter.type = 'lowpass'
-      filter.frequency.setValueAtTime(track.filterFreq, now)
-      filter.Q.setValueAtTime(1, now)
-      
-      gain.gain.setValueAtTime(0, now)
-      gain.gain.linearRampToValueAtTime(0.15 / frequencies.length, now + 0.3)
-      gain.gain.linearRampToValueAtTime(0.12 / frequencies.length, now + duration * 0.5)
-      gain.gain.linearRampToValueAtTime(0, now + duration)
-      
-      osc.connect(filter)
-      filter.connect(gain)
-      gain.connect(this.gainNode)
-      
-      osc.start(now)
-      osc.stop(now + duration + 0.1)
-      
-      this.activeOscillators.push(osc)
-      this.activeFilters.push(filter)
-      this.activeGainNodes.push(gain)
-      
-      this.playArpeggio(freq, track, index)
+
+  loadAndPlayTrack(track) {
+    if (!track || !this.isPlaying) return
+
+    const audio = new Audio(track.filename)
+    audio.loop = true
+    audio.volume = 0
+    audio.preload = 'auto'
+
+    const onCanPlay = () => {
+      if (this.isPlaying && this.tracks[this.currentTrackIndex] === track && audio === this.currentAudio) {
+        this.fadeInAudio(audio)
+      }
+      audio.removeEventListener('canplaythrough', onCanPlay)
+      audio.removeEventListener('loadedmetadata', onCanPlay)
+    }
+
+    audio.addEventListener('canplaythrough', onCanPlay)
+    audio.addEventListener('loadedmetadata', onCanPlay)
+
+    audio.addEventListener('ended', () => {
+      if (this.isPlaying && this.tracks[this.currentTrackIndex] === track) {
+        audio.currentTime = 0
+        audio.play().catch(e => console.error('Auto replay failed:', e))
+      }
     })
+
+    audio.addEventListener('error', (e) => {
+      console.error('Error loading audio:', track.filename, e)
+      this.showError(`无法加载音乐: ${track.name}`)
+      if (this.isPlaying) {
+        this.nextTrack()
+      }
+    })
+
+    this.currentAudio = audio
+    audio.load()
   }
-  
-  playArpeggio(baseFreq, track, delayIndex) {
-    const now = this.audioContext.currentTime + delayIndex * 0.1
-    const notes = [0, 4, 7, 12]
-    
-    notes.forEach((interval, noteIndex) => {
-      const noteTime = now + noteIndex * track.arpeggioSpeed
-      const freq = baseFreq * Math.pow(2, interval / 12)
-      
-      const osc = this.audioContext.createOscillator()
-      const filter = this.audioContext.createBiquadFilter()
-      const gain = this.audioContext.createGain()
-      
-      osc.type = track.oscillatorType
-      osc.frequency.setValueAtTime(freq, noteTime)
-      
-      filter.type = 'lowpass'
-      filter.frequency.setValueAtTime(track.filterFreq * 1.5, noteTime)
-      
-      gain.gain.setValueAtTime(0, noteTime)
-      gain.gain.linearRampToValueAtTime(0.08, noteTime + 0.05)
-      gain.gain.exponentialRampToValueAtTime(0.001, noteTime + 0.8)
-      
-      osc.connect(filter)
-      filter.connect(gain)
-      gain.connect(this.gainNode)
-      
-      osc.start(noteTime)
-      osc.stop(noteTime + 0.9)
-      
-      this.activeOscillators.push(osc)
-      this.activeFilters.push(filter)
-      this.activeGainNodes.push(gain)
+
+  fadeInAudio(audio) {
+    if (!audio || !this.isPlaying || audio !== this.currentAudio) return
+
+    const targetVolume = this.volume
+    const fadeDuration = 500
+    const startTime = Date.now()
+
+    const fadeIn = () => {
+      if (!this.isPlaying || this.currentAudio !== audio) return
+
+      const elapsed = Date.now() - startTime
+      const progress = Math.min(elapsed / fadeDuration, 1)
+      const eased = 1 - Math.pow(1 - progress, 3)
+      audio.volume = targetVolume * eased
+
+      if (progress < 1) {
+        requestAnimationFrame(fadeIn)
+      }
+    }
+
+    audio.play().then(() => {
+      fadeIn()
+    }).catch(e => {
+      console.error('Playback failed:', e)
     })
   }
   
   nextTrack() {
-    this.currentTrackIndex = (this.currentTrackIndex + 1) % this.tracks.length
+    const nextIndex = (this.currentTrackIndex + 1) % this.tracks.length
+    this.currentTrackIndex = nextIndex
     this.saveState()
     if (this.isPlaying) {
       this.startTrack()
@@ -3811,7 +3758,8 @@ class MusicManager {
   }
   
   prevTrack() {
-    this.currentTrackIndex = (this.currentTrackIndex - 1 + this.tracks.length) % this.tracks.length
+    const prevIndex = (this.currentTrackIndex - 1 + this.tracks.length) % this.tracks.length
+    this.currentTrackIndex = prevIndex
     this.saveState()
     if (this.isPlaying) {
       this.startTrack()
@@ -3821,6 +3769,9 @@ class MusicManager {
   
   setVolume(value) {
     this.volume = Math.max(0, Math.min(1, value))
+    if (this.currentAudio && this.isPlaying) {
+      this.currentAudio.volume = this.volume
+    }
     if (this.gainNode) {
       this.gainNode.gain.setValueAtTime(this.volume, this.audioContext.currentTime)
     }
@@ -3833,6 +3784,31 @@ class MusicManager {
   
   getTrackCount() {
     return this.tracks.length
+  }
+  
+  showError(message) {
+    const toast = document.createElement('div')
+    toast.className = 'toast error'
+    toast.textContent = message
+    toast.style.cssText = `
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(255, 107, 107, 0.9);
+      color: white;
+      padding: 15px 25px;
+      border-radius: 10px;
+      font-size: 14px;
+      z-index: 10000;
+      animation: fadeIn 0.3s ease;
+    `
+    document.body.appendChild(toast)
+    setTimeout(() => {
+      toast.style.opacity = '0'
+      toast.style.transition = 'opacity 0.3s ease'
+      setTimeout(() => toast.remove(), 300)
+    }, 3000)
   }
 }
 
@@ -3861,6 +3837,156 @@ class MobileController {
     this.setupDPadButtons()
     this.setupSwipeDetection()
     this.setupPerformanceOptimization()
+    this.setupDraggableMusicControl()
+  }
+  
+  setupDraggableMusicControl() {
+    const musicControl = document.getElementById('musicControl')
+    if (!musicControl) return
+    
+    let isDragging = false
+    let startX, startY
+    let initialLeft, initialTop
+    let touchStartTime = 0
+    let isTouchOnButton = false
+    const longPressThreshold = 300
+    
+    const getPosition = (e) => {
+      if (e.touches && e.touches.length > 0) {
+        return { x: e.touches[0].clientX, y: e.touches[0].clientY }
+      }
+      return { x: e.clientX, y: e.clientY }
+    }
+    
+    const isButtonElement = (target) => {
+      if (!target) return false
+      const buttonSelectors = ['.music-btn', '.music-expand', '.volume-icon', '#volumeSlider', '.music-toggle']
+      for (const selector of buttonSelectors) {
+        if (target.closest(selector)) return true
+      }
+      return target.tagName === 'BUTTON' || target.tagName === 'INPUT'
+    }
+    
+    const handleTouchStart = (e) => {
+      const target = e.target
+      isTouchOnButton = isButtonElement(target)
+      
+      const pos = getPosition(e)
+      startX = pos.x
+      startY = pos.y
+      touchStartTime = Date.now()
+      
+      const rect = musicControl.getBoundingClientRect()
+      initialLeft = rect.left
+      initialTop = rect.top
+      
+      isDragging = false
+      
+      if (isTouchOnButton) return
+      
+      setTimeout(() => {
+        if (Date.now() - touchStartTime >= longPressThreshold && !isDragging && !isTouchOnButton) {
+          isDragging = true
+          musicControl.style.transition = 'none'
+        }
+      }, longPressThreshold)
+    }
+    
+    const handleTouchMove = (e) => {
+      if (!isDragging) {
+        const pos = getPosition(e)
+        const deltaX = Math.abs(pos.x - startX)
+        const deltaY = Math.abs(pos.y - startY)
+        
+        if (deltaX > 10 || deltaY > 10) {
+          const duration = Date.now() - touchStartTime
+          if ((duration >= longPressThreshold || duration < 30) && !isTouchOnButton) {
+            isDragging = true
+            musicControl.style.transition = 'none'
+          }
+        }
+        return
+      }
+      
+      e.preventDefault()
+      
+      const pos = getPosition(e)
+      const deltaX = pos.x - startX
+      const deltaY = pos.y - startY
+      
+      let newLeft = initialLeft + deltaX
+      let newTop = initialTop + deltaY
+      
+      const maxLeft = window.innerWidth - musicControl.offsetWidth
+      const maxTop = window.innerHeight - musicControl.offsetHeight
+      
+      newLeft = Math.max(0, Math.min(newLeft, maxLeft))
+      newTop = Math.max(0, Math.min(newTop, maxTop))
+      
+      musicControl.style.left = newLeft + 'px'
+      musicControl.style.top = newTop + 'px'
+      musicControl.style.bottom = 'auto'
+      musicControl.style.right = 'auto'
+    }
+    
+    const handleTouchEnd = (e) => {
+      if (isDragging) {
+        isDragging = false
+        musicControl.style.transition = 'all 0.3s ease'
+        
+        const rect = musicControl.getBoundingClientRect()
+        localStorage.setItem('musicControlPosition', JSON.stringify({
+          left: rect.left,
+          top: rect.top
+        }))
+      }
+    }
+    
+    musicControl.addEventListener('touchstart', handleTouchStart, { passive: true })
+    musicControl.addEventListener('touchmove', handleTouchMove, { passive: false })
+    musicControl.addEventListener('touchend', handleTouchEnd, { passive: true })
+    musicControl.addEventListener('touchcancel', handleTouchEnd, { passive: true })
+    
+    musicControl.addEventListener('mousedown', handleTouchStart)
+    musicControl.addEventListener('mousemove', handleTouchMove)
+    musicControl.addEventListener('mouseup', handleTouchEnd)
+    musicControl.addEventListener('mouseleave', handleTouchEnd)
+    
+    const savedPos = localStorage.getItem('musicControlPosition')
+    if (savedPos) {
+      try {
+        const pos = JSON.parse(savedPos)
+        musicControl.style.left = pos.left + 'px'
+        musicControl.style.top = pos.top + 'px'
+        musicControl.style.bottom = 'auto'
+        musicControl.style.right = 'auto'
+      } catch (e) {
+        console.error('Failed to load music control position:', e)
+      }
+    }
+    
+    const validateAndAdjustPosition = () => {
+      const rect = musicControl.getBoundingClientRect()
+      const maxLeft = window.innerWidth - musicControl.offsetWidth
+      const maxTop = window.innerHeight - musicControl.offsetHeight
+      
+      let newLeft = Math.max(0, Math.min(rect.left, maxLeft))
+      let newTop = Math.max(0, Math.min(rect.top, maxTop))
+      
+      if (newLeft !== rect.left || newTop !== rect.top) {
+        musicControl.style.left = newLeft + 'px'
+        musicControl.style.top = newTop + 'px'
+        localStorage.setItem('musicControlPosition', JSON.stringify({
+          left: newLeft,
+          top: newTop
+        }))
+      }
+    }
+    
+    window.addEventListener('resize', validateAndAdjustPosition)
+    window.addEventListener('orientationchange', () => {
+      setTimeout(validateAndAdjustPosition, 100)
+    })
   }
   
   setupDPadButtons() {
@@ -3871,9 +3997,17 @@ class MobileController {
     
     if (!dUp) return
     
+    let lastTouchTime = 0
+    const debounceDelay = 50
+    
     const handleDPadTouch = (btn, direction) => {
       btn.addEventListener('touchstart', (e) => {
         e.preventDefault()
+        
+        const now = Date.now()
+        if (now - lastTouchTime < debounceDelay) return
+        lastTouchTime = now
+        
         btn.classList.add('active')
         if (this.gameController.gameState.status === 'PLAYING') {
           this.gameController.inputHandler.setDirection(direction)
@@ -3898,6 +4032,7 @@ class MobileController {
   
   setupSwipeDetection() {
     const canvas = document.getElementById('gameCanvas')
+    const mobileControls = document.getElementById('mobileControls')
     if (!canvas) return
     
     canvas.addEventListener('touchstart', (e) => {
@@ -3913,12 +4048,22 @@ class MobileController {
       const touchEndY = e.changedTouches[0].clientY
       const touchDuration = Date.now() - this.touchStartTime
       
+      if (mobileControls && mobileControls.style.display !== 'none') {
+        const controlsRect = mobileControls.getBoundingClientRect()
+        if (touchEndX >= controlsRect.left && touchEndX <= controlsRect.right &&
+            touchEndY >= controlsRect.top && touchEndY <= controlsRect.bottom) {
+          return
+        }
+      }
+      
       if (touchDuration > 300) return
       
       const deltaX = touchEndX - this.touchStartX
       const deltaY = touchEndY - this.touchStartY
       
-      if (Math.abs(deltaX) < this.swipeThreshold && Math.abs(deltaY) < this.swipeThreshold) return
+      const adaptiveThreshold = window.innerWidth < 360 ? 50 : this.swipeThreshold
+      
+      if (Math.abs(deltaX) < adaptiveThreshold && Math.abs(deltaY) < adaptiveThreshold) return
       
       let direction
       if (Math.abs(deltaX) > Math.abs(deltaY)) {
