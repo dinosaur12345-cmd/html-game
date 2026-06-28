@@ -93,11 +93,10 @@
   </div>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
   <script>
-    function getGameUrl() {
-      var path = window.location.pathname
-      var basePath = path.substring(0, path.lastIndexOf('/') + 1)
-      return window.location.origin + basePath
-    }
+  function getGameUrl() {
+    // 固定写死线上公网地址，本地打开也生成可扫码链接
+    return "https://dinosaur12345-cmd.github.io/html-game/";
+}
     var gameUrl = getGameUrl()
     document.getElementById('gameUrl').textContent = gameUrl
     new QRCode(document.getElementById('qrcode'), {
